@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小小農夫耕種樂 (挑戰版) 🚜</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 使用 Inter 字體 */
+        body {
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+            overscroll-behavior: none; /* 防止 "pull-to-refresh" */
+        }
+        /* 耕地容器 */
+        #farm-grid-container {
+            display: grid;
+            border: 4px solid #8B4513; /* 土壤顏色 */
+            background-color: #fcf8e3; /* 淺黃色代表泥土 */
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
+            overflow: hidden; /* 防止磚塊溢出 */
+            position: relative; /* 用於定位結果文字 */
+            width: 100%; 
+            max-width: 450px; /* 限制最大寬度 */
+            margin: 0 auto; /* 居中 */
+            aspect-ratio: var(--aspect-ratio-val, 1 / 1);
+        }
+
+        /* 鋪磚效果 (共同樣式) */
+        .tile-base {
+            position: absolute;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            animation: tile-fade-in 0.3s ease-out forwards;
+            transform-origin: center;
+            line-height: 1;
+            width: calc(var(--tile-width, 10%) - 1px);
+            height: calc(var(--tile-height, 10%) - 1px);
+            left: calc(var(--tile-x, 0%) + 1px);
+            top: calc(var(--tile-y, 0%) + 1px);
+        }
+
+        /* 鋪磚效果 */
+        .plant-tile {
+            background-color: #22c55e; /* green-500 */
+            border: 1px solid #16a34a; /* darker green */
+            opacity: 0.85;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            z-index: 10;
+            color: white;
+        }
+        .gap-tile {
+            background-color: #ef4444; /* red-500 */
+            border: 1px dashed white;
+            opacity: 0.7;
+            z-index: 10;
+            color: white;
+        }
+        
+        @keyframes tile-fade-in {
+            0% { opacity: 0; transform: scale(0.7); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        
+        .gap-tile { opacity: 0.7; }
+        .plant-tile { opacity: 0.85; }
+
+        /* 工具箱按鈕 */
+        .tool-btn {
+            transition: all 0.2s ease;
+        }
+        
+        /* 已測試按鈕的基本樣式 */
+        .tool-btn.tested {
+            background-color: #6b7280;
+            color: white;
+            opacity: 0.7;
+            cursor: not-allowed; /* 預設不可點擊 (挑戰模式) */
+        }
+
+        /* 第一關 (可重溫模式) 的樣式覆蓋 
+           透過在父容器加入 .review-enabled class 來控制
+        */
+        .review-enabled .tool-btn.tested {
+            cursor: pointer; /* 變回手指，提示可點擊 */
+            opacity: 0.8;
+        }
+        .review-enabled .tool-btn.tested:hover {
+            opacity: 1; /* hover 時變亮 */
+            background-color: #4b5563;
+        }
+
+        /* 真正的禁用狀態 (遊戲結束) */
+        .tool-btn:disabled {
+            background-color: #9ca3af;
+            color: #e5e7eb;
+            opacity: 0.5;
+            cursor: not-allowed !important; /* 強制覆蓋 */
+            transform: scale(0.95);
+        }
+
+        /* 愛心 (生命值) */
+        #lives-display {
+            font-size: 1.75rem;
+            letter-spacing: 0.2em;
+            min-height: 2.5rem; /* 保持高度避免排版跳動 */
+        }
+        
+        /* 彈窗動畫 */
+        .modal-content {
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform: scale(0.95);
+            opacity: 0;
+        }
+        .modal-content.show {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        /* 挑戰賽進度條 */
+        #challenge-progress-bar {
+            transition: width 0.5s ease-in-out;
+        }
+        
+        /* 下一關按鈕動畫 */
+        @keyframes pulse-scale {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); }
+            50% { transform: translate(-50%, -50%) scale(1.05); }
+        }
+        .animate-pulse-scale {
+            animation: pulse-scale 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-yellow-50 min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-5xl mx-auto bg-white rounded-2xl shadow-2xl p-6 md:p-8">
+        
+        <!-- 標題 -->
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-yellow-900">小小農夫耕種樂 🚜</h1>
+            <p class="text-lg text-gray-600 mt-2">幫助農夫以不浪費土地的方法種農作物</p>
+            
+            <!-- 計時器與分數顯示 (挑戰賽用) -->
+            <div id="challenge-header" class="hidden max-w-2xl mx-auto mt-4">
+                <div class="flex justify-between items-center bg-yellow-100 p-3 rounded-t-lg border-2 border-b-0 border-yellow-300">
+                    <div class="text-xl font-bold text-red-600 flex items-center gap-2">
+                        <span>⏱️</span> <span id="timer-display">05:00</span>
+                    </div>
+                    <div class="text-lg font-bold text-gray-700">
+                        關卡: <span id="level-indicator">1</span>/10
+                    </div>
+                    <div class="text-xl font-bold text-blue-700 flex items-center gap-2">
+                        <span>⭐</span> <span id="score-display">0</span>
+                    </div>
+                </div>
+                <!-- 進度條 -->
+                <div class="w-full bg-gray-200 rounded-b-lg h-2.5 dark:bg-gray-700 border-2 border-t-0 border-yellow-300 overflow-hidden">
+                    <div id="challenge-progress-bar" class="bg-blue-600 h-2.5 rounded-none" style="width: 0%"></div>
+                </div>
+            </div>
+        </header>
+
+        <div class="flex flex-col lg:flex-row gap-6">
+
+            <!-- 左側：耕地模擬區 -->
+            <main id="main-game-area" class="w-full lg:w-3/5 border-4 border-yellow-800 bg-yellow-100 rounded-lg p-4 transition-all duration-300">
+                
+                <!-- 關卡標題 -->
+                <h2 id="level-title" class="text-xl font-bold text-center text-yellow-800 mb-2"></h2>
+                
+                <!-- 生命值顯示 (教學關會隱藏) -->
+                <div id="lives-display" class="text-center text-3xl mb-3" aria-label="剩餘機會"></div>
+
+                <!-- 農夫提示 -->
+                <div id="farmer-message" class="bg-white border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-lg shadow mb-4 min-h-[60px]">
+                    請在右邊的「農作物工具箱」選擇一款正方形農作物試試看吧！
+                </div>
+
+                <!-- 耕地模擬區域 -->
+                <div class="relative w-full max-w-xl mx-auto mb-6 pt-10 pl-10">
+                    <!-- 闊度標籤 -->
+                    <div id="farm-label-width" class="absolute top-2 left-1/2 -translate-x-1/2 text-center text-sm font-bold text-yellow-900 bg-yellow-200 px-2 py-0.5 rounded"></div>
+                    <!-- 長度標籤 -->
+                    <div id="farm-label-length" class="absolute left-1 top-1/2 -translate-y-1/2 text-sm font-bold text-yellow-900 bg-yellow-200 px-2 py-0.5 rounded" style="writing-mode: vertical-rl; transform: translateY(-50%);"></div>
+                    
+                    <!-- 網格容器 -->
+                    <div id="farm-grid-container" class="relative"></div>
+                    
+                    <!-- 鋪設結果文字 -->
+                    <div id="overlay-results" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20 p-10">
+                        <div id="width-result-text" class="text-lg font-bold bg-white/80 p-2 rounded shadow mb-2 hidden"></div>
+                        <div id="length-result-text" class="text-lg font-bold bg-white/80 p-2 rounded shadow hidden"></div>
+                    </div>
+                </div>
+
+                <!-- 按鈕區域 -->
+                <div id="button-container" class="mt-6 space-y-4">
+                    <button id="summary-button" class="hidden w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg text-lg hover:bg-blue-700 transition duration-300">
+                        查看本關總結！
+                    </button>
+                    <!-- 完成教學關按鈕 (新增) -->
+                    <button id="complete-tutorial-btn" class="hidden w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg text-lg hover:bg-blue-700 transition duration-300 animate-bounce">
+                        完成教學關，進入小測驗 ➡️
+                    </button>
+                    
+                    <!-- 下一關 / 挑戰賽按鈕 -->
+                    <button id="next-level-button" class="hidden fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 bg-green-600 text-white font-extrabold py-10 px-20 rounded-3xl text-5xl shadow-[0_20px_60px_rgba(0,0,0,0.6)] hover:bg-green-500 hover:scale-105 transition-all duration-300 border-8 border-white ring-8 ring-green-600 animate-pulse-scale">
+                        開始限時挑戰賽！ 🔥
+                    </button>
+                    <button id="retry-button" class="hidden w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg text-lg hover:bg-red-700 transition duration-300">
+                        重新挑戰本關
+                    </button>
+                </div>
+
+            </main>
+
+            <!-- 右側：工具箱 & 結果 -->
+            <aside id="sidebar" class="w-full lg:w-2/5 transition-all duration-300">
+                <!-- 農作物工具箱 (按鈕模式) -->
+                <div id="toolbox-container" class="bg-gray-100 rounded-lg p-4 shadow-md">
+                    <h3 class="text-lg font-bold text-gray-800 text-center mb-3">🌼 農作物工具箱 🌼</h3>
+                    <p class="text-sm text-center text-gray-600 mb-4">(請找出所有能鋪滿的尺寸)</p>
+                    <div id="toolbox" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-3 gap-3"></div>
+                </div>
+
+                <!-- 新增：手動輸入區 (第5關後使用) -->
+                <div id="manual-input-container" class="hidden bg-yellow-100 rounded-lg p-4 shadow-md border-2 border-yellow-300">
+                    <h3 class="text-lg font-bold text-yellow-900 text-center mb-3">✏️ 自訂農作物尺寸</h3>
+                    <p class="text-sm text-center text-gray-600 mb-4">請輸入你想測試的邊長 (米)</p>
+                    
+                    <div class="flex gap-2 mb-4">
+                        <input type="number" id="manual-size-input" class="w-full border-2 border-yellow-400 rounded-lg p-3 text-2xl text-center focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="?" min="1">
+                        <button id="manual-test-btn" class="bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-green-700 transition duration-200">測試</button>
+                    </div>
+
+                    <!-- 歷史記錄 -->
+                    <div class="bg-white rounded-lg p-3 min-h-[100px] border border-yellow-200">
+                        <h4 class="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">已測試記錄：</h4>
+                        <div id="manual-history" class="flex flex-wrap gap-2">
+                            <!-- JS 會在這裡加入標籤 -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 測試結果 -->
+                <div class="bg-blue-50 rounded-lg p-4 mt-6 shadow-md">
+                    <h3 class="text-lg font-bold text-blue-800 text-center mb-4">📋 測試結果 📋</h3>
+                    <table id="results-table" class="w-full text-center">
+                        <thead>
+                            <tr class="border-b-2 border-blue-200">
+                                <th class="py-2">農作物邊長</th>
+                                <th class="py-2">闊度?</th>
+                                <th class="py-2">長度?</th>
+                                <th class="py-2"><strong>鋪滿？</strong></th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body" class="text-gray-700"></tbody>
+                    </table>
+                </div>
+            </aside>
+
+        </div>
+    </div>
+    
+    <!-- 總結彈窗 (Modal) -->
+    <div id="summary-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="modal-content bg-white rounded-lg p-8 max-w-lg w-full">
+            <h2 id="summary-title" class="text-2xl font-bold text-blue-800 mb-4">本關總結 💡</h2>
+            <div id="summary-text" class="text-gray-700 space-y-3"></div>
+            <button id="close-modal-button" class="mt-6 w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300">
+                我明白了！
+            </button>
+        </div>
+    </div>
+    
+    <!-- 小測驗彈窗 (Modal) -->
+    <div id="quiz-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-40">
+        <div class="modal-content bg-white rounded-lg p-8 max-w-md w-full">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">非常好！</h2>
+            <p id="quiz-question" class="text-lg text-gray-700 mb-6">你學會了能鋪滿耕地的農作物邊長，是耕地長度和闊度的...？</p>
+            <div class="space-y-3">
+                <button id="quiz-btn-factor" class="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg text-lg hover:bg-green-600 transition duration-300">
+                    公因數
+                </button>
+                <button id="quiz-btn-multiple" class="w-full bg-yellow-500 text-white font-bold py-3 px-4 rounded-lg text-lg hover:bg-yellow-600 transition duration-300">
+                    公倍數
+                </button>
+            </div>
+            <p id="quiz-feedback" class="text-center font-bold mt-4 h-6"></p>
+        </div>
+    </div>
+
+    <!-- 挑戰賽過關彈窗 -->
+    <div id="level-complete-modal" class="hidden fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center p-4 z-50">
+        <div class="modal-content bg-white rounded-lg p-6 max-w-sm w-full text-center shadow-2xl transform scale-100">
+            <div class="text-5xl mb-2">✨</div>
+            <h2 class="text-2xl font-bold text-green-700 mb-2">正確！</h2>
+            <p class="text-gray-600 font-bold">+10 分</p>
+            <!-- 手動下一關按鈕 -->
+            <button id="next-challenge-btn" class="mt-4 w-full bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition duration-300 flex items-center justify-center gap-2">
+                下一題 ➡️
+            </button>
+        </div>
+    </div>
+    
+    <!-- 挑戰賽本關失敗彈窗 -->
+    <div id="level-fail-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
+        <div class="modal-content bg-white rounded-lg p-6 max-w-sm w-full text-center shadow-2xl border-4 border-red-400">
+            <div class="text-5xl mb-2">🤔</div>
+            <h2 class="text-2xl font-bold text-red-700 mb-2">再接再厲！</h2>
+            <p class="text-gray-600">2 次機會用盡了。</p>
+            <p class="text-sm text-gray-500 mt-2">點擊按鈕重新挑戰本關！</p>
+            <button id="restart-level-btn" class="mt-4 w-full bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 transition duration-300">
+                重新開始本關
+            </button>
+        </div>
+    </div>
+
+    <!-- 挑戰賽結束彈窗 -->
+    <div id="challenge-end-modal" class="hidden fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 z-50">
+        <div class="modal-content bg-white rounded-2xl p-8 max-w-md w-full text-center border-4 border-yellow-400">
+            <div class="text-6xl mb-4">🏆</div>
+            <h2 class="text-3xl font-bold text-yellow-800 mb-2">挑戰結束！</h2>
+            <p id="end-reason" class="text-gray-600 mb-6">你完成了所有的耕種挑戰。</p>
+            
+            <div class="bg-yellow-50 rounded-lg p-6 mb-6">
+                <div class="text-sm text-gray-500 mb-1">最終得分</div>
+                <div class="text-5xl font-bold text-blue-600 mb-2"><span id="final-score">0</span><span class="text-2xl text-gray-400">/100</span></div>
+                <div id="final-comment" class="text-lg font-bold text-green-600">做得好！</div>
+            </div>
+            
+            <button onclick="location.reload()" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg text-lg hover:bg-blue-700 transition duration-300 shadow-lg">
+                再次遊玩
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- 遊戲資料 ---
+        // 第一關 (教學關)
+        const tutorialLevel = {
+            width: 12,
+            length: 18,
+            maxToolSize: 12,
+            title: "農田邊長： 12米 (闊) × 18米 (長)" 
+        };
+
+        // 挑戰賽題目 (10個模擬耕種關卡)
+        // 注意：第 5 關 (index 4) 開始使用手動輸入
+        const challengeLevels = [
+            { width: 3, length: 3, maxToolSize: 3, title: "第1題： 3米 (闊) × 3米 (長)" },
+            { width: 4, length: 4, maxToolSize: 4, title: "第2題： 4米 (闊) × 4米 (長)" },
+            // 修改：第3關改為長方形 (5x10)
+            { width: 5, length: 10, maxToolSize: 5, title: "第3題： 5米 (闊) × 10米 (長)" },
+            { width: 4, length: 6, maxToolSize: 4, title: "第4題： 4米 (闊) × 6米 (長)" },
+            // --- 以下開始手動輸入 (數字較大，但 <=30) ---
+            { width: 12, length: 15, maxToolSize: 12, title: "第5題： 12米 (闊) × 15米 (長)" },
+            { width: 18, length: 24, maxToolSize: 18, title: "第6題： 18米 (闊) × 24米 (長)" },
+            { width: 20, length: 25, maxToolSize: 20, title: "第7題： 20米 (闊) × 25米 (長)" },
+            { width: 24, length: 30, maxToolSize: 24, title: "第8題： 24米 (闊) × 30米 (長)" },
+            { width: 21, length: 28, maxToolSize: 21, title: "第9題： 21米 (闊) × 28米 (長)" },
+            { width: 20, length: 30, maxToolSize: 20, title: "第10題： 20米 (闊) × 30米 (長)" }
+        ];
+
+        // --- 狀態變數 ---
+        let currentFarm;
+        let testedSizes = {};
+        let lives = 2;
+        let totalCorrectFactors = 0;
+        let correctFactorsFound = [];
+        let gameOver = false;
+        
+        let currentRetryCount = 0;
+        let currentErrorsMade = 0;
+        let lastTestedSize = null;
+
+        // 挑戰賽變數
+        let isChallengeMode = false;
+        let currentChallengeIndex = 0;
+        let score = 0;
+        let timerInterval;
+        let timeLeft = 300; // 5分鐘 = 300秒
+
+        // --- DOM 元素 ---
+        const farmGridContainer = document.getElementById('farm-grid-container');
+        const farmerMessageEl = document.getElementById('farmer-message');
+        const resultsBodyEl = document.getElementById('results-body');
+        const summaryButton = document.getElementById('summary-button');
+        const nextLevelButton = document.getElementById('next-level-button');
+        const completeTutorialBtn = document.getElementById('complete-tutorial-btn'); // 新增
+        const retryButton = document.getElementById('retry-button');
+        const levelTitleEl = document.getElementById('level-title');
+        const livesDisplay = document.getElementById('lives-display');
+        const widthResultText = document.getElementById('width-result-text');
+        const lengthResultText = document.getElementById('length-result-text');
+        const farmLabelWidth = document.getElementById('farm-label-width');
+        const farmLabelLength = document.getElementById('farm-label-length');
+        
+        // 工具箱相關 (切換用)
+        const toolboxContainer = document.getElementById('toolbox-container');
+        const toolBoxEl = document.getElementById('toolbox');
+        const manualInputContainer = document.getElementById('manual-input-container');
+        const manualSizeInput = document.getElementById('manual-size-input');
+        const manualTestBtn = document.getElementById('manual-test-btn');
+        const manualHistory = document.getElementById('manual-history');
+
+        // Modal & Headers
+        const summaryModal = document.getElementById('summary-modal');
+        const summaryTitle = document.getElementById('summary-title');
+        const summaryText = document.getElementById('summary-text');
+        const closeModalButton = document.getElementById('close-modal-button');
+        const quizModal = document.getElementById('quiz-modal');
+        const quizBtnFactor = document.getElementById('quiz-btn-factor');
+        const quizBtnMultiple = document.getElementById('quiz-btn-multiple');
+        const quizFeedback = document.getElementById('quiz-feedback');
+        
+        // 挑戰賽專用
+        const challengeHeader = document.getElementById('challenge-header');
+        const timerDisplay = document.getElementById('timer-display');
+        const scoreDisplay = document.getElementById('score-display');
+        const levelIndicator = document.getElementById('level-indicator');
+        const progressBar = document.getElementById('challenge-progress-bar');
+        const levelCompleteModal = document.getElementById('level-complete-modal');
+        const nextChallengeBtn = document.getElementById('next-challenge-btn'); 
+        const levelFailModal = document.getElementById('level-fail-modal');
+        const restartLevelBtn = document.getElementById('restart-level-btn');
+        const challengeEndModal = document.getElementById('challenge-end-modal');
+        const finalScoreEl = document.getElementById('final-score');
+        const finalCommentEl = document.getElementById('final-comment');
+        const endReasonEl = document.getElementById('end-reason');
+
+        // --- 核心輔助函數 ---
+        function getFactors(num) {
+            const factors = [];
+            for (let i = 1; i <= num; i++) {
+                if (num % i === 0) factors.push(i);
+            }
+            return factors;
+        }
+
+        function getCommonFactors(num1, num2) {
+            const factors1 = getFactors(num1);
+            const factors2 = getFactors(num2);
+            return factors1.filter(f => factors2.includes(f));
+        }
+        
+        function showModal(modalElement) {
+            modalElement.classList.remove('hidden');
+            const content = modalElement.querySelector('.modal-content');
+            if (content) setTimeout(() => content.classList.add('show'), 10);
+        }
+
+        function hideModal(modalElement) {
+            const content = modalElement.querySelector('.modal-content');
+            if (content) {
+                content.classList.remove('show');
+                setTimeout(() => modalElement.classList.add('hidden'), 300);
+            } else {
+                modalElement.classList.add('hidden');
+            }
+        }
+
+        // --- 遊戲流程 (教學關) ---
+
+        function initGame() {
+            isChallengeMode = false;
+            currentRetryCount = 0;
+            loadLevelData(tutorialLevel);
+        }
+        
+        function loadLevelData(levelData) {
+            currentFarm = levelData;
+            testedSizes = {};
+            gameOver = false;
+            lives = 2; // 挑戰模式的生命值
+            correctFactorsFound = [];
+            lastTestedSize = null;
+            currentErrorsMade = 0;
+            
+            // 計算目標
+            totalCorrectFactors = getCommonFactors(currentFarm.width, currentFarm.length)
+                                    .filter(f => f <= currentFarm.maxToolSize)
+                                    .length;
+
+            // UI 初始化
+            levelTitleEl.textContent = currentFarm.title;
+            
+            farmLabelWidth.textContent = `闊度: ${currentFarm.width}米`;
+            farmLabelLength.textContent = `長度: ${currentFarm.length}米`;
+            farmGridContainer.style.setProperty('--aspect-ratio-val', `${currentFarm.width} / ${currentFarm.length}`);
+            farmGridContainer.innerHTML = '';
+
+            // 隱藏不相關按鈕
+            summaryButton.classList.add('hidden');
+            nextLevelButton.classList.add('hidden');
+            retryButton.classList.add('hidden');
+            completeTutorialBtn.classList.add('hidden'); // 預設隱藏完成按鈕
+            widthResultText.classList.add('hidden');
+            lengthResultText.classList.add('hidden');
+            
+            // 生成結果表 (清空)
+            resultsBodyEl.innerHTML = '';
+
+            // --- 判斷顯示哪種工具箱與訊息 ---
+            if (isChallengeMode && currentChallengeIndex >= 4) {
+                setupManualInput();
+                farmerMessageEl.innerHTML = '請找出這塊耕地的所有合適農作物，並輸入邊長測試！';
+                toolboxContainer.classList.remove('review-enabled'); 
+                livesDisplay.classList.remove('invisible'); // 顯示心心
+                updateLivesDisplay();
+            } else {
+                setupButtonGrid();
+                let msg = isChallengeMode 
+                    ? `請找出這塊 ${currentFarm.width}x${currentFarm.length} 耕地的所有合適農作物！`
+                    : '請在右邊的「農作物工具箱」選擇一款正方形農作物試試看吧！';
+                farmerMessageEl.innerHTML = msg;
+                
+                // 只有第一關(教學關)啟用「可重溫」模式
+                if (!isChallengeMode) {
+                    toolboxContainer.classList.add('review-enabled');
+                    livesDisplay.classList.add('invisible'); // 教學關隱藏心心 (佔位但不顯示)
+                } else {
+                    toolboxContainer.classList.remove('review-enabled');
+                    livesDisplay.classList.remove('invisible');
+                    updateLivesDisplay();
+                }
+            }
+            farmerMessageEl.className = 'bg-white border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-lg shadow mb-4 min-h-[60px]';
+        }
+
+        function setupButtonGrid() {
+            toolboxContainer.classList.remove('hidden');
+            manualInputContainer.classList.add('hidden');
+            
+            toolBoxEl.innerHTML = '';
+            for (let i = 1; i <= currentFarm.maxToolSize; i++) {
+                const button = document.createElement('button');
+                button.textContent = `${i}米`;
+                button.dataset.size = i;
+                button.className = 'tool-btn w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-3 px-2 rounded-lg shadow-md';
+                button.addEventListener('click', () => testSize(i));
+                toolBoxEl.appendChild(button);
+            }
+            
+            // 預先生成表格行
+            for (let i = 1; i <= currentFarm.maxToolSize; i++) {
+                addResultRow(i);
+            }
+        }
+
+        function setupManualInput() {
+            toolboxContainer.classList.add('hidden');
+            manualInputContainer.classList.remove('hidden');
+            manualSizeInput.value = '';
+            manualHistory.innerHTML = ''; // 清空歷史
+            manualSizeInput.disabled = false;
+            manualTestBtn.disabled = false;
+        }
+
+        function addResultRow(size) {
+            const row = document.createElement('tr');
+            row.id = `result-row-${size}`;
+            row.className = 'border-b border-blue-100';
+            row.innerHTML = `
+                <td class="py-2 font-bold">${size}米</td>
+                <td id="width-fit-${size}" class="py-2 text-gray-400">?</td>
+                <td id="length-fit-${size}" class="py-2 text-gray-400">?</td>
+                <td id="all-fit-${size}" class="py-2 text-gray-400">?</td>
+            `;
+            resultsBodyEl.appendChild(row);
+        }
+
+        // 處理手動輸入
+        manualTestBtn.addEventListener('click', () => {
+            const val = parseInt(manualSizeInput.value);
+            if (!val || val <= 0) return;
+            
+            // 如果這個數字還沒在表格中，新增一行
+            if (!document.getElementById(`result-row-${val}`)) {
+                addResultRow(val);
+            }
+            
+            testSize(val);
+            manualSizeInput.value = '';
+            manualSizeInput.focus();
+        });
+        
+        // 支援 Enter 鍵提交
+        manualSizeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') manualTestBtn.click();
+        });
+
+        function testSize(size) {
+            if (gameOver) return; // 遊戲結束時完全禁止
+
+            // 1. 檢查是否已測試
+            if (testedSizes[size]) {
+                // 如果是第一關 (非挑戰模式)，允許重新查看
+                if (!isChallengeMode) {
+                    // 重新執行視覺化與訊息更新
+                    lastTestedSize = size;
+                    const widthRemainder = currentFarm.width % size;
+                    const lengthRemainder = currentFarm.length % size;
+                    const fitsWidth = widthRemainder === 0;
+                    const fitsLength = lengthRemainder === 0;
+                    const fitsAll = fitsWidth && fitsLength;
+                    
+                    visualizeTest(size, fitsWidth, fitsLength, widthRemainder, lengthRemainder);
+                    updateFarmerMessage(size, fitsWidth, fitsLength, fitsAll);
+                    return; 
+                } else {
+                    return; // 挑戰模式下，已測試的按鈕無效
+                }
+            }
+            
+            // 2. 正常測試邏輯
+            lastTestedSize = size;
+            const widthRemainder = currentFarm.width % size;
+            const lengthRemainder = currentFarm.length % size;
+            const fitsWidth = widthRemainder === 0;
+            const fitsLength = lengthRemainder === 0;
+            const fitsAll = fitsWidth && fitsLength;
+
+            // 標記按鈕 (如果是按鈕模式)
+            const button = toolBoxEl.querySelector(`[data-size="${size}"]`);
+            if(button) button.classList.add('tested');
+            
+            // 標記手動歷史 (如果是手動模式)
+            if (isChallengeMode && currentChallengeIndex >= 4) {
+                const badge = document.createElement('span');
+                badge.className = `px-2 py-1 rounded text-sm font-bold border ${fitsAll ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`;
+                badge.textContent = `${size}米 ${fitsAll ? '✅' : '❌'}`;
+                manualHistory.appendChild(badge);
+            }
+
+            testedSizes[size] = true;
+
+            // 視覺化
+            visualizeTest(size, fitsWidth, fitsLength, widthRemainder, lengthRemainder);
+            updateTable(size, fitsWidth, fitsLength, fitsAll);
+            updateFarmerMessage(size, fitsWidth, fitsLength, fitsAll);
+            
+            // 邏輯判斷
+            if (fitsAll) {
+                if (!correctFactorsFound.includes(size)) correctFactorsFound.push(size);
+                
+                // 檢查是否找齊所有答案
+                if (correctFactorsFound.length === totalCorrectFactors) {
+                    if (isChallengeMode) {
+                        winChallengeLevel();
+                    } else {
+                        winTutorialLevel();
+                    }
+                }
+            } else {
+                // 修改：只有在挑戰模式才扣心心
+                if (isChallengeMode) {
+                    lives--;
+                    currentErrorsMade++;
+                    updateLivesDisplay();
+                    if (lives === 0) {
+                        showLevelFailModal();
+                    }
+                }
+                // 教學關不扣分，不結束遊戲
+            }
+        }
+        
+        // --- 視覺化邏輯 ---
+        function visualizeTest(size, fitsWidth, fitsLength, widthRemainder, lengthRemainder) {
+            farmGridContainer.innerHTML = '';
+            widthResultText.classList.add('hidden');
+            lengthResultText.classList.add('hidden');
+            
+            if (size === null) return;
+
+            const tileWidthPerc = (size / currentFarm.width) * 100;
+            const tileLengthPerc = (size / currentFarm.length) * 100;
+            const gapWidthPerc = (widthRemainder / currentFarm.width) * 100;
+            const gapLengthPerc = (lengthRemainder / currentFarm.length) * 100;
+
+            const numTilesX = Math.floor(currentFarm.width / size);
+            const numTilesY = Math.floor(currentFarm.length / size);
+
+            let delay = 0;
+            const totalTiles = numTilesX * numTilesY;
+            const stepDelay = totalTiles > 50 ? 1 : 5;
+
+            for (let y = 0; y < numTilesY; y++) {
+                for (let x = 0; x < numTilesX; x++) {
+                    createPlantTile(x * tileWidthPerc, y * tileLengthPerc, tileWidthPerc, tileLengthPerc, true, delay, '🌱');
+                    delay += stepDelay;
+                }
+            }
+
+            if (!fitsWidth) {
+                for (let y = 0; y < numTilesY; y++) {
+                    createPlantTile(numTilesX * tileWidthPerc, y * tileLengthPerc, gapWidthPerc, tileLengthPerc, false, delay, '🚫');
+                    delay += stepDelay;
+                }
+            }
+            if (!fitsLength) {
+                for (let x = 0; x < numTilesX; x++) {
+                    createPlantTile(x * tileWidthPerc, numTilesY * tileLengthPerc, tileWidthPerc, gapLengthPerc, false, delay, '🚫');
+                    delay += stepDelay;
+                }
+            }
+            if (!fitsWidth && !fitsLength) {
+                createPlantTile(numTilesX * tileWidthPerc, numTilesY * tileLengthPerc, gapWidthPerc, gapLengthPerc, false, delay, '🚫');
+                delay += stepDelay;
+            }
+
+            setTimeout(() => {
+                widthResultText.classList.remove('hidden');
+                widthResultText.textContent = fitsWidth ? `✅ 闊度 (${currentFarm.width}米) 剛剛好！` : `❌ 闊度 (${currentFarm.width}米) 剩下 ${widthRemainder}米！`;
+                widthResultText.className = fitsWidth ? 'text-lg font-bold bg-green-100/90 p-2 rounded shadow text-green-700' : 'text-lg font-bold bg-red-100/90 p-2 rounded shadow text-red-700';
+            }, delay + 100);
+
+            setTimeout(() => {
+                lengthResultText.classList.remove('hidden');
+                lengthResultText.textContent = fitsLength ? `✅ 長度 (${currentFarm.length}米) 剛剛好！` : `❌ 長度 (${currentFarm.length}米) 剩下 ${lengthRemainder}米！`;
+                lengthResultText.className = fitsLength ? 'text-lg font-bold bg-green-100/90 p-2 rounded shadow text-green-700' : 'text-lg font-bold bg-red-100/90 p-2 rounded shadow text-red-700';
+            }, delay + 200);
+        }
+
+        function createPlantTile(xPerc, yPerc, wPerc, hPerc, isFit, delay, emoji) {
+            const tile = document.createElement('div');
+            tile.className = `tile-base ${isFit ? 'plant-tile' : 'gap-tile'}`;
+            tile.style.setProperty('--tile-x', `${xPerc}%`);
+            tile.style.setProperty('--tile-y', `${yPerc}%`);
+            tile.style.setProperty('--tile-width', `${wPerc}%`);
+            tile.style.setProperty('--tile-height', `${hPerc}%`);
+            tile.style.animationDelay = `${delay}ms`;
+            if (wPerc > 5 && hPerc > 5) tile.textContent = emoji || '';
+            farmGridContainer.appendChild(tile);
+        }
+        
+        // --- UI 更新 helpers ---
+        function updateLivesDisplay() {
+            livesDisplay.innerHTML = '❤️'.repeat(lives) + '🖤'.repeat(2 - lives);
+        }
+
+        function updateTable(size, fitsWidth, fitsLength, fitsAll) {
+            document.getElementById(`width-fit-${size}`).innerHTML = fitsWidth ? '✅' : '❌';
+            document.getElementById(`width-fit-${size}`).className = fitsWidth ? 'text-green-600' : 'text-red-600';
+            document.getElementById(`length-fit-${size}`).innerHTML = fitsLength ? '✅' : '❌';
+            document.getElementById(`length-fit-${size}`).className = fitsLength ? 'text-green-600' : 'text-red-600';
+            const allFitCell = document.getElementById(`all-fit-${size}`);
+            allFitCell.innerHTML = fitsAll ? '🌟 <strong>能鋪滿</strong>' : '😥';
+            allFitCell.className = fitsAll ? 'text-yellow-600 font-bold' : 'text-gray-500';
+            document.getElementById(`result-row-${size}`).classList.add('bg-blue-100');
+        }
+        
+        // --- 核心更新：修改農夫訊息以顯示實際數字 ---
+        function updateFarmerMessage(size, fitsWidth, fitsLength, fitsAll) {
+            let message = '';
+            let a_class = '';
+            const w = currentFarm.width;
+            const l = currentFarm.length;
+
+            if (fitsAll) {
+                // 修改：提及數字及「公因數」
+                message = `🌟 正確！${size} 是 ${w} 和 ${l} 的公因數。`;
+                a_class = 'bg-green-100 border-l-4 border-green-500 text-green-800 p-4 rounded-lg shadow mb-4 min-h-[60px]';
+            } else if (fitsWidth && !fitsLength) {
+                message = `🤔 錯誤。${size} 是 ${w} 的因數，但不是 ${l} 的因數。`;
+                a_class = 'bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-lg shadow mb-4 min-h-[60px]';
+            } else if (!fitsWidth && fitsLength) {
+                message = `🤔 錯誤。${size} 是 ${l} 的因數，但不是 ${w} 的因數。`;
+                a_class = 'bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-lg shadow mb-4 min-h-[60px]';
+            } else {
+                // 教學模式不顯示生命值提示
+                let livesMsg = isChallengeMode ? `(剩下 ${lives} 次機會)` : '';
+                message = `😥 錯誤。${size} 不是 ${w} 或 ${l} 的因數。 ${livesMsg}`;
+                a_class = 'bg-red-100 border-l-4 border-red-500 text-red-800 p-4 rounded-lg shadow mb-4 min-h-[60px]';
+            }
+            farmerMessageEl.innerHTML = message;
+            farmerMessageEl.className = a_class;
+        }
+
+        function disableToolbox() {
+            toolBoxEl.querySelectorAll('.tool-btn').forEach(btn => {
+                btn.disabled = true;
+                if (!btn.classList.contains('tested')) btn.classList.add('tested');
+            });
+            // 禁用手動輸入
+            manualSizeInput.disabled = true;
+            manualTestBtn.disabled = true;
+        }
+        
+        // --- 教學關結果 ---
+        function winTutorialLevel() {
+            // gameOver = true; // 移除：不鎖定遊戲
+            // disableToolbox(); // 移除：不禁用工具箱
+            let attemptText = currentRetryCount === 0 ? "你第 1 次嘗試就成功了！" : `你總共嘗試了 ${currentRetryCount + 1} 次。`;
+            
+            // 顯示完成訊息，並提示可以繼續探索
+            farmerMessageEl.innerHTML = `🏆 <strong>挑戰成功！</strong> 你找到了所有 ${totalCorrectFactors} 款適合的農作物！<br>你可以繼續測試其他尺寸查看效果，或者按下方按鈕進入小測驗。`;
+            farmerMessageEl.className = 'bg-green-100 border-l-4 border-green-500 text-green-800 p-4 rounded-lg shadow mb-4 min-h-[60px]';
+            
+            // 顯示手動跳轉按鈕 (不自動彈出 Modal)
+            completeTutorialBtn.classList.remove('hidden');
+        }
+
+        function loseTutorialLevel() {
+            gameOver = true;
+            disableToolbox();
+            farmerMessageEl.innerHTML = '😥 2次機會用完了。別灰心，再試一次吧！';
+            farmerMessageEl.className = 'bg-red-100 border-l-4 border-red-500 text-red-800 p-4 rounded-lg shadow mb-4 min-h-[60px]';
+            retryButton.classList.remove('hidden');
+            retryButton.onclick = () => { currentRetryCount++; loadLevelData(tutorialLevel); };
+        }
+
+        function showSummary() {
+            const { width, length, maxToolSize } = currentFarm;
+            // 只在第一關顯示總結教學
+            summaryTitle.textContent = `第 1 關總結 💡`;
+            summaryText.innerHTML = `
+                <p>我們的耕地是 <strong>${width}米 × ${length}米</strong>。</p>
+                <p class="mt-2">要將農作物「鋪滿」，邊長必須同時是 ${width} <strong>和</strong> ${length} 的因數。</p>
+                <p class="text-xl font-bold text-center text-blue-700 mt-2">我們稱這些數為「公因數」！</p>
+            `;
+            showModal(summaryModal);
+            nextLevelButton.classList.remove('hidden');
+            completeTutorialBtn.classList.add('hidden'); // 隱藏完成按鈕
+        }
+        
+        // --- 挑戰賽邏輯 ---
+
+        // 啟動
+        nextLevelButton.addEventListener('click', startChallengeSequence);
+
+        function startChallengeSequence() {
+            hideModal(summaryModal);
+            isChallengeMode = true;
+            currentChallengeIndex = 0;
+            score = 0;
+            timeLeft = 300; // 5分鐘
+            
+            // UI 更新
+            challengeHeader.classList.remove('hidden');
+            scoreDisplay.textContent = score;
+            updateProgressBar();
+            
+            startTimer();
+            loadChallengeLevel(0);
+        }
+
+        function loadChallengeLevel(index) {
+            if (index >= challengeLevels.length) {
+                endChallenge("你完成了所有挑戰！");
+                return;
+            }
+            
+            currentChallengeIndex = index;
+            levelIndicator.textContent = index + 1;
+            updateProgressBar();
+            
+            // 載入關卡數據 (與教學關共用函數)
+            loadLevelData(challengeLevels[index]);
+        }
+
+        // --- 挑戰關卡失敗處理 ---
+        function showLevelFailModal() {
+            gameOver = true;
+            disableToolbox();
+            showModal(levelFailModal);
+        }
+
+        restartLevelBtn.addEventListener('click', () => {
+            hideModal(levelFailModal);
+            loadChallengeLevel(currentChallengeIndex); // 重新載入當前關卡
+        });
+        
+        function updateProgressBar() {
+            const percent = (currentChallengeIndex / challengeLevels.length) * 100;
+            progressBar.style.width = `${percent}%`;
+        }
+
+        function winChallengeLevel() {
+            gameOver = true;
+            disableToolbox();
+            
+            // 加分
+            score += 10;
+            scoreDisplay.textContent = score;
+            scoreDisplay.parentElement.classList.add('scale-125');
+            setTimeout(() => scoreDisplay.parentElement.classList.remove('scale-125'), 200);
+
+            // 顯示過關彈窗
+            showModal(levelCompleteModal);
+        }
+        
+        // 手動下一關按鈕事件
+        nextChallengeBtn.addEventListener('click', () => {
+            hideModal(levelCompleteModal);
+            loadChallengeLevel(currentChallengeIndex + 1);
+        });
+        
+        function loseChallengeGame(reason) {
+            gameOver = true;
+            disableToolbox();
+            clearInterval(timerInterval);
+            endChallenge(reason);
+        }
+
+        function startTimer() {
+            updateTimerDisplay();
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateTimerDisplay();
+                if (timeLeft <= 0) {
+                    loseChallengeGame("時間到了！");
+                }
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            if (timeLeft <= 30) {
+                timerDisplay.parentElement.classList.add('animate-pulse');
+            }
+        }
+
+        function endChallenge(reason) {
+            clearInterval(timerInterval);
+            finalScoreEl.textContent = score;
+            endReasonEl.textContent = reason;
+            
+            if (score === 100) {
+                finalCommentEl.textContent = "太神了！你是數學天才！🌟";
+                finalCommentEl.className = "text-lg font-bold text-yellow-600";
+            } else if (score >= 60) {
+                finalCommentEl.textContent = "做得很好！繼續保持！👍";
+                finalCommentEl.className = "text-lg font-bold text-green-600";
+            } else {
+                finalCommentEl.textContent = "不要灰心，多練習就會進步！🌱";
+                finalCommentEl.className = "text-lg font-bold text-gray-600";
+            }
+            
+            showModal(challengeEndModal);
+        }
+
+        // --- 事件綁定 ---
+        summaryButton.addEventListener('click', showSummary);
+        closeModalButton.addEventListener('click', () => hideModal(summaryModal));
+        
+        // 綁定教學關完成按鈕 (修復：之前漏掉了)
+        completeTutorialBtn.addEventListener('click', () => {
+            showQuizModal();
+        });
+        
+        // 教學關的小測驗
+        function showQuizModal() {
+            quizFeedback.textContent = '';
+            quizBtnFactor.disabled = false;
+            quizBtnMultiple.disabled = false;
+            showModal(quizModal);
+        }
+        function handleQuizChoice(isCorrect) {
+            if (isCorrect) {
+                quizFeedback.textContent = '答對了！🌟 是公因數！';
+                quizFeedback.className = 'text-center font-bold mt-4 h-6 text-green-600';
+                quizBtnFactor.disabled = true;
+                quizBtnMultiple.disabled = true;
+                setTimeout(() => { hideModal(quizModal); showSummary(); }, 1500);
+            } else {
+                quizFeedback.textContent = '再試一次！不是公倍數喔... 🤔';
+                quizFeedback.className = 'text-center font-bold mt-4 h-6 text-red-600';
+            }
+        }
+        quizBtnFactor.addEventListener('click', () => handleQuizChoice(true));
+        quizBtnMultiple.addEventListener('click', () => handleQuizChoice(false));
+
+        // Resize 處理
+        window.addEventListener('resize', () => {
+            if (lastTestedSize) {
+                const size = lastTestedSize;
+                const widthRemainder = currentFarm.width % size;
+                const lengthRemainder = currentFarm.length % size;
+                const fitsWidth = widthRemainder === 0;
+                const fitsLength = lengthRemainder === 0;
+                visualizeTest(size, fitsWidth, fitsLength, widthRemainder, lengthRemainder);
+            } else {
+                farmGridContainer.innerHTML = '';
+            }
+        });
+
+        // 啟動遊戲
+        initGame();
+
+    </script>
+</body>
+</html>
